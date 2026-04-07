@@ -178,7 +178,7 @@ Elasticsearch에 관한 자료는 넘쳐납니다. 하지만 대부분은 **"어
 
 | 문서 | 다루는 내용 |
 |------|------------|
-| [01. 인덱스 설계 전략 — 샤드 크기·롤오버·ILM 핫-웜-콜드](./operations-tuning/01-index-design-strategy.md) | 샤드당 10~50GB 가이드라인의 근거, 시계열 인덱스에서 인덱스 롤오버(Rollup)로 샤드를 분리하는 패턴, ILM(Index Lifecycle Management)의 핫(최신, 쓰기) → 웜(조회) → 콜드(보관) 전환 정책 설계 |
+| [01. 인덱스 설계 전략 — 샤드 크기·롤오버·ILM 핫-웜-콜드](./operations-tuning/01-index-design-strategy.md) | 샤드당 10~50GB 가이드라인의 근거, 시계열 인덱스에서 인덱스 롤오버(Rollover)로 샤드를 분리하는 패턴, ILM(Index Lifecycle Management)의 핫(최신, 쓰기) → 웜(조회) → 콜드(보관) 전환 정책 설계 |
 | [02. 클러스터 성능 진단 — `_cat`·`_cluster`·`_nodes/stats` 핵심 지표](./operations-tuning/02-cluster-performance-diagnosis.md) | `_cat/nodes?v&h=heap.percent,cpu,load_1m`로 노드 상태 파악, `_cluster/health`의 Green/Yellow/Red 판단 기준, `_nodes/stats`에서 indexing/search/GC 지표 해석, 느린 쿼리 로그(`slowlog`) 설정과 분석 |
 | [03. 힙 메모리 튜닝 — RAM 50% 제한과 OS Page Cache](./operations-tuning/03-heap-memory-tuning.md) | ES_JAVA_OPTS 힙을 RAM 50% 이하로 제한하는 이유(나머지 50%를 Lucene의 OS Page Cache로 활용), G1GC vs ZGC 선택 기준, GC 오버헤드 경보 조건, `_nodes/stats/jvm`으로 GC 현황을 모니터링하는 방법 |
 | [04. 쓰기 성능 최적화 — bulk API·refresh_interval·translog 설정](./operations-tuning/04-write-performance.md) | `refresh_interval=-1`로 쓰기 집중 구간 성능을 높이는 방법과 검색 지연 트레이드오프, Bulk API 배치 크기 튜닝(5~15MB 권장), translog `durability=async` 설정의 내구성 위험, 대규모 초기 적재(initial load) 시 설정 조합 |
@@ -214,40 +214,107 @@ Elasticsearch에 관한 자료는 넘쳐납니다. 하지만 대부분은 **"어
 ```yaml
 # docker-compose.yml
 services:
+
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    container_name: es-node
     environment:
       - discovery.type=single-node
       - xpack.security.enabled=false
       - ES_JAVA_OPTS=-Xms1g -Xmx1g
+      - bootstrap.memory_lock=true
     ulimits:
       memlock:
         soft: -1
         hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
     volumes:
       - esdata:/usr/share/elasticsearch/data
     ports:
-      - "9200:9200"
+      - "9200:9200"   # REST API
+      - "9300:9300"   # 노드 간 Transport
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
   kibana:
     image: docker.elastic.co/kibana/kibana:8.11.0
+    container_name: kibana
     depends_on:
-      - elasticsearch
+      elasticsearch:
+        condition: service_healthy
     environment:
       - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
     ports:
-      - "5601:5601"
+      - "5601:5601"   # Kibana Dev Tools — 모든 실험은 여기서
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:5601/api/status || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
 
   elasticsearch-exporter:
     image: quay.io/prometheuscommunity/elasticsearch-exporter:latest
+    container_name: es-exporter
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
     command:
       - '--es.uri=http://elasticsearch:9200'
+      - '--es.all'
+      - '--es.indices'
+      - '--es.shards'
     ports:
-      - "9114:9114"
+      - "9114:9114"   # Prometheus scrape endpoint
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    depends_on:
+      - elasticsearch-exporter
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheusdata:/prometheus
+    ports:
+      - "9090:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.retention.time=7d'
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    depends_on:
+      - prometheus
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafanadata:/var/lib/grafana
+    ports:
+      - "3000:3000"   # admin / admin 으로 접속
 
 volumes:
   esdata:
+  prometheusdata:
+  grafanadata:
 ```
+
+> `prometheus.yml`은 `docker-compose.yml`과 같은 디렉토리에 두면 자동 마운트됩니다. 실행: `docker compose up -d`
+
+| 서비스 | 포트 | 용도 |
+|--------|------|------|
+| Elasticsearch | `9200` | REST API / `_analyze`, `_explain`, `_cat` 실험 |
+| Kibana | `5601` | Dev Tools — 모든 쿼리 실험 |
+| ES Exporter | `9114` | Prometheus scrape |
+| Prometheus | `9090` | 메트릭 수집 |
+| Grafana | `3000` | 대시보드 시각화 (admin/admin) |
 
 ```bash
 # 실험용 공통 명령어 세트 (Kibana Dev Tools 또는 curl)
