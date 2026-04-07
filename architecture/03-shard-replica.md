@@ -131,19 +131,19 @@ Primary Shard:
   ┌─────────────────────────────────────────────────────┐
   │                  Primary Shard                      │
   │                                                     │
-  │  쓰기 진입점:                                         │
-  │    모든 인덱싱 요청이 먼저 Primary에 도달               │
-  │    Primary가 유효성 검증 + 로컬 인덱싱 수행              │
-  │    → Replica에 복제 명령 (병렬)                        │
-  │    → 모든 Replica 확인 후 클라이언트 응답               │
+  │  쓰기 진입점:                                          │
+  │    모든 인덱싱 요청이 먼저 Primary에 도달                  │
+  │    Primary가 유효성 검증 + 로컬 인덱싱 수행                │
+  │    → Replica에 복제 명령 (병렬)                         │
+  │    → 모든 Replica 확인 후 클라이언트 응답                  │
   │                                                     │
-  │  복제 오케스트레이터:                                   │
-  │    Replica가 실패하면 클러스터에 보고                    │
-  │    클러스터가 해당 Replica를 In-sync set에서 제거        │
+  │  복제 오케스트레이터:                                    │
+  │    Replica가 실패하면 클러스터에 보고                      │
+  │    클러스터가 해당 Replica를 In-sync set에서 제거          │
   │                                                     │
   │  장애 복구 기준:                                       │
-  │    Primary 장애 시 → Replica 중 하나가 Primary로 승격   │
-  │    승격 기준: in-sync replica set 내에서 선택           │
+  │    Primary 장애 시 → Replica 중 하나가 Primary로 승격    │
+  │    승격 기준: in-sync replica set 내에서 선택            │
   └─────────────────────────────────────────────────────┘
 
 Replica Shard:
@@ -151,16 +151,16 @@ Replica Shard:
   │                  Replica Shard                      │
   │                                                     │
   │  읽기 분산:                                           │
-  │    검색 요청 시 Primary/Replica 중 선택 (부하 분산)      │
-  │    → 레플리카가 많을수록 검색 처리량 수평 확장             │
+  │    검색 요청 시 Primary/Replica 중 선택 (부하 분산)        │
+  │    → 레플리카가 많을수록 검색 처리량 수평 확장                │
   │                                                     │
   │  장애 대비:                                           │
-  │    Primary 장애 시 자동으로 Primary 승격               │
-  │    데이터 손실 없이 서비스 계속                          │
+  │    Primary 장애 시 자동으로 Primary 승격                 │
+  │    데이터 손실 없이 서비스 계속                            │
   │                                                     │
   │  제약:                                               │
-  │    항상 Primary와 다른 노드에 배치 (같은 노드 = 의미 없음)  │
-  │    → 가용 노드 < 1 + replica 수이면 일부 Replica 미할당  │
+  │    항상 Primary와 다른 노드에 배치 (같은 노드 = 의미 없음)    │
+  │    → 가용 노드 < 1 + replica 수이면 일부 Replica 미할당    │
   └─────────────────────────────────────────────────────┘
 
 In-sync Replica Set (IRS):
