@@ -498,6 +498,6 @@ Made with ❤️ by [Dev Book Lab](https://github.com/dev-book-lab)
 
 <br/>
 
-*"match 쿼리를 쓰는 것과, Lucene이 역색인을 어떻게 탐색하고 BM25로 점수를 계산하는지 아는 것은 다르다"*
+**"match 쿼리를 쓰는 것과, Lucene이 역색인을 어떻게 탐색하고 BM25로 점수를 계산하는지 아는 것은 다르다"**
 
 </div>
